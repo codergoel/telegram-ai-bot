@@ -3,6 +3,9 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 import os
 from dotenv import load_dotenv
 from database import save_user, update_phone_number
+from gemini_api import get_gemini_response
+from database import save_chat
+
 
 # Load API Token
 load_dotenv()
@@ -42,9 +45,24 @@ async def contact_handler(update: Update, context: CallbackContext):
     else:
         await update.message.reply_text("❌ Please use the button to share your phone number.")
 
+async def ai_chat(update: Update, context: CallbackContext):
+    """Handles user messages and responds with Gemini AI."""
+    user_id = update.message.chat_id
+    user_message = update.message.text
+
+    bot_response = get_gemini_response(user_message)
+
+    # Save chat history
+    save_chat(user_id, user_message, bot_response)
+
+    await update.message.reply_text(bot_response)
+
+
 # Handlers
 app.add_handler(CommandHandler("start", start))
 app.add_handler(MessageHandler(filters.CONTACT, contact_handler))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ai_chat))
+
 
 # Run bot
 if __name__ == "__main__":
