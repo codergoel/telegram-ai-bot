@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from database import save_user, update_phone_number, save_file_metadata
 from gemini_api import get_gemini_response, analyze_image
 from database import save_chat
+from web_search import perform_web_search
 
 
 # Load API Token
@@ -106,6 +107,26 @@ async def handle_photo(update: Update, context: CallbackContext):
     except Exception as e:
         await update.message.reply_text(f"❌ Error processing image: {str(e)}")
 
+async def handle_websearch(update: Update, context: CallbackContext):
+    """Handles the /websearch command."""
+    try:
+        query = " ".join(context.args)
+        if not query:
+            await update.message.reply_text("❌ Please provide a search query. Example: `/websearch AI news`")
+            return
+
+        await update.message.reply_text("🔍 Searching... Please wait.")
+        
+        # Perform web search and summarize
+        summary = perform_web_search(query)
+
+        # Send response (split if too long)
+        for chunk in [summary[i:i+4000] for i in range(0, len(summary), 4000)]:
+            await update.message.reply_text(chunk)
+    
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error processing search: {str(e)}")
+
 
 
 # Handlers
@@ -114,6 +135,9 @@ app.add_handler(MessageHandler(filters.CONTACT, contact_handler))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ai_chat))
 app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+app.add_handler(CommandHandler("websearch", handle_websearch))
+
+
 
 
 
