@@ -6,7 +6,13 @@ from database import save_user, update_phone_number, save_file_metadata
 from gemini_api import get_gemini_response, analyze_image
 from database import save_chat
 from web_search import perform_web_search
+from pymongo import MongoClient
 
+# Connect to MongoDB
+MONGO_URI = os.getenv("MONGO_URI")
+client = MongoClient(MONGO_URI)
+db = client["telegram_bot"]
+users_collection = db["users"]
 
 # Load API Token
 load_dotenv()
@@ -127,6 +133,57 @@ async def handle_websearch(update: Update, context: CallbackContext):
     except Exception as e:
         await update.message.reply_text(f"❌ Error processing search: {str(e)}")
 
+async def handle_start(update: Update, context: CallbackContext):
+    """Handles /start command with referral tracking."""
+    user_id = update.message.chat_id
+    first_name = update.message.chat.first_name
+    username = update.message.chat.username
+
+    # Check if a referral code is provided
+    args = context.args
+    referred_by = args[0] if args else None
+
+    # Check if user already exists
+    user = users_collection.find_one({"chat_id": user_id})
+    if user:
+        await update.message.reply_text(f"👋 Welcome back, {first_name}!")
+        return
+
+    # New user - Save to MongoDB
+    new_user = {
+        "chat_id": user_id,
+        "first_name": first_name,
+        "username": username,
+        "referral_code": str(user_id),
+        "referred_by": referred_by,
+        "referral_count": 0
+    }
+    users_collection.insert_one(new_user)
+
+    # If referred, update referrer's referral count
+    if referred_by:
+        users_collection.update_one(
+            {"chat_id": int(referred_by)},
+            {"$inc": {"referral_count": 1}}
+        )
+        await update.message.reply_text(f"🎉 You joined via referral! Your referrer: {referred_by}")
+
+    await update.message.reply_text(f"👋 Welcome, {first_name}!\n🎁 Your referral code: `{user_id}`\nRefer others using `/start {user_id}` to earn rewards!")
+
+async def my_referrals(update: Update, context: CallbackContext):
+    """Handles /myreferrals command to check referrals."""
+    user_id = update.message.chat_id
+    user = users_collection.find_one({"chat_id": user_id})
+
+    if not user:
+        await update.message.reply_text("❌ You're not registered yet.")
+        return
+
+    referred_by = user.get("referred_by", "None")
+    referral_count = user.get("referral_count", 0)
+
+    message = f"🎁 **Referral Stats**\n\n🔹 Your Referral Code: `{user_id}`\n🔹 Referred By: {referred_by}\n🔹 People Referred: {referral_count}"
+    await update.message.reply_text(message)
 
 
 # Handlers
@@ -136,10 +193,8 @@ app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ai_chat))
 app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 app.add_handler(CommandHandler("websearch", handle_websearch))
-
-
-
-
+app.add_handler(CommandHandler("start", handle_start))
+app.add_handler(CommandHandler("myreferrals", my_referrals))
 
 # Run bot
 if __name__ == "__main__":
