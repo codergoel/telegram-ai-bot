@@ -12,6 +12,18 @@ client = MongoClient(MONGO_URI)
 db = client["telegram_bot"]
 users_collection = db["users"]
 chats_collection = db["chats"]
+files_collection = db["files"]
+
+def save_file_metadata(user_id, file_id, file_name, file_type, description):
+    """Store file details and analysis in MongoDB."""
+    files_collection.insert_one({
+        "chat_id": user_id,
+        "file_id": file_id,
+        "file_name": file_name,
+        "file_type": file_type,
+        "description": description,
+        "timestamp": datetime.now(timezone.utc)
+    })
 
 def save_user(user_id, first_name, username):
     """Save user details in MongoDB."""

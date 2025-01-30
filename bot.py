@@ -2,8 +2,8 @@ from telegram import Update, KeyboardButton, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 import os
 from dotenv import load_dotenv
-from database import save_user, update_phone_number
-from gemini_api import get_gemini_response
+from database import save_user, update_phone_number, save_file_metadata
+from gemini_api import get_gemini_response, analyze_image
 from database import save_chat
 
 
@@ -58,10 +58,63 @@ async def ai_chat(update: Update, context: CallbackContext):
     await update.message.reply_text(bot_response)
 
 
+async def handle_document(update: Update, context: CallbackContext):
+    """Handles file uploads (PDF, PNG, JPG, etc.)."""
+    user_id = update.message.chat_id
+    document = update.message.document
+    file = await context.bot.get_file(document.file_id)
+    file_path = f"downloads/{document.file_name}"
+
+    # Save file locally
+    os.makedirs("downloads", exist_ok=True)
+    await file.download_to_drive(file_path)
+
+    # Analyze file (only for images)
+    if document.mime_type.startswith("image/"):
+        description = analyze_image(file_path)
+    else:
+        description = "📄 File received. No analysis available."
+
+    # Store metadata in MongoDB
+    save_file_metadata(user_id, document.file_id, document.file_name, document.mime_type, description)
+
+    await update.message.reply_text(f"📂 File Received:\n{description}")
+
+
+async def handle_photo(update: Update, context: CallbackContext):
+    """Handles images uploaded by the user."""
+    try:
+        user_id = update.message.chat_id
+        photo = update.message.photo[-1]  # Get the highest quality photo
+        file = await context.bot.get_file(photo.file_id)
+        file_path = f"downloads/{photo.file_id}.jpg"
+
+        # Save image locally
+        os.makedirs("downloads", exist_ok=True)
+        await file.download_to_drive(file_path)
+
+        # Analyze image
+        description = analyze_image(file_path)
+
+        # Store metadata in MongoDB
+        save_file_metadata(user_id, photo.file_id, f"{photo.file_id}.jpg", "image", description)
+
+        # Send response in chunks if too long
+        for chunk in [description[i:i+4000] for i in range(0, len(description), 4000)]:
+            await update.message.reply_text(chunk)
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error processing image: {str(e)}")
+
+
+
 # Handlers
 app.add_handler(CommandHandler("start", start))
 app.add_handler(MessageHandler(filters.CONTACT, contact_handler))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ai_chat))
+app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+
 
 
 # Run bot
